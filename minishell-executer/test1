@@ -1,0 +1,14 @@
+.
+..
+en.subject.pdf
+.git
+include
+main.c
+main.o
+Makefile
+minishell
+README.md
+src
+test1
+test2
+tests
