@@ -7,13 +7,12 @@
 #include <stdio.h>
 
 
-// minishell.h içindeki t_shell tanımını güncelle
-
+// Bu, projenin ana struct'ıdır. Tüm program boyunca yaşar.
 typedef struct s_shell {
-    char **envp;           // Ortam değişkenleri
-    int last_exit_status;  // Son komutun çıkış durumu
-    char *pwd;             // Mevcut çalışma dizini
-    char *old_pwd;         // Önceki çalışma dizini
+    char **envp;           // Ortam değişkenlerinin dinamik kopyası
+    int last_exit_status;  // Son komutun çıkış durumu ($?)
+    char *pwd;             // Mevcut çalışma dizini (heap'te tutulur)
+    char *old_pwd;         // Önceki çalışma dizini (heap'te tutulur)
 } t_shell;
 
 #endif

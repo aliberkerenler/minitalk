@@ -4,53 +4,84 @@
  * Komut listesini çalıştıran ana fonksiyon
  * Parser'dan gelen komut yapısını alır ve sırayla çalıştırır
  */
-int execute_commands(t_command *cmd_list, t_shell *shell)
+static void	execute_child_process(t_command *cmd, t_shell *shell, int in_fd, int out_fd)
 {
-    t_exec_context ctx;
-    t_command *current;
-    int cmd_count;
-
-    if (!cmd_list || !cmd_list->args || !cmd_list->args[0])
-        return (0); // Boş komut durumu
-
-    // Çalıştırma bağlamını başlat
-    ctx.prev_pipe_read = -1;
-    ctx.exit_status = 0;
-    ctx.envp = shell->envp; // Shell'den çevre değişkenlerini al
-
-    // Komutları say (pipe yönetimi için)
-    current = cmd_list;
-    cmd_count = 0;
-    while (current)
-    {
-        cmd_count++;
-        current = current->next_command;
-    }
-
-    // Komutları çalıştır
-    current = cmd_list;
-    cmd_count = 1;
-    while (current)
-    {
-
-        // Builtin komut mu diye kontrol et
-        if (is_builtin(current->args[0]))
-        {
-            execute_builtin(current, shell, &ctx);
-        }
-        else
-        {
-            ctx.exit_status = execute_external(current, shell, &ctx);
-        }
-
-        current = current->next_command;
-        cmd_count++;
-    }
-
-    // Çıkış durumunu shell'e kaydet
-    shell->last_exit_status = ctx.exit_status;
-    return (ctx.exit_status);
+	if (in_fd != STDIN_FILENO)
+	{
+		dup2(in_fd, STDIN_FILENO);
+		close(in_fd);
+	}
+	if (out_fd != STDOUT_FILENO)
+	{
+		dup2(out_fd, STDOUT_FILENO);
+		close(out_fd);
+	}
+	if (is_builtin(cmd->args[0]))
+	{
+		execute_builtin(cmd, shell, NULL);
+		exit(shell->last_exit_status);
+	}
+	else
+	{
+		char *path = find_command_path(cmd->args[0], shell->envp);
+		if (path)
+		{
+			execve(path, cmd->args, shell->envp);
+			free(path);
+		}
+		perror("minishell: command not found");
+		exit(127);
+	}
 }
+
+void	execute_commands(t_command *cmds, t_shell *shell)
+{
+	int		pipe_fd[2];
+	int		in_fd;
+	pid_t	pid;
+	int		status;
+	t_command *current_cmd = cmds;
+
+	in_fd = STDIN_FILENO;
+	while (current_cmd)
+	{
+		if (current_cmd->next_command)
+		{
+			if (pipe(pipe_fd) == -1)
+			{
+				perror("minishell: pipe");
+				return ;
+			}
+		}
+		pid = fork();
+		if (pid == -1)
+		{
+			perror("minishell: fork");
+			return ;
+		}
+		if (pid == 0) // Çocuk süreç
+		{
+			int out_fd = (current_cmd->next_command) ? pipe_fd[1] : STDOUT_FILENO;
+			if (current_cmd->next_command)
+				close(pipe_fd[0]);
+			execute_child_process(current_cmd, shell, in_fd, out_fd);
+		}
+		if (in_fd != STDIN_FILENO)
+			close(in_fd);
+		if (current_cmd->next_command)
+		{
+			close(pipe_fd[1]);
+			in_fd = pipe_fd[0];
+		}
+		current_cmd = current_cmd->next_command;
+	}
+	while (wait(&status) > 0)
+	{
+		if (WIFEXITED(status))
+			shell->last_exit_status = WEXITSTATUS(status);
+	}
+}
+
 
 // executor.c dosyasındaki execute_builtin fonksiyonunu bununla değiştir:
 

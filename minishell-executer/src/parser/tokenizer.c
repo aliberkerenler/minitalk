@@ -50,74 +50,6 @@ static char *ft_substr(const char *s, unsigned int start, size_t len)
 }
 
 
-// Ana tokenizer fonksiyonu (2-5 Mayıs Görevleri)
-t_token *tokenize(const char *input)
-{
-	t_token	*tokens = NULL;
-	int		i = 0;
-
-	while (input[i])
-	{
-		// 1. Boşlukları atla
-		if (strchr(" \t\n", input[i])) // strchr degisecek
-		{
-			i++;
-			continue;
-		}
-		// 2. Operatörleri tanı (4 Mayıs)
-		if (strchr("|<>", input[i]))
-		{
-			if (input[i] == '|')
-				append_token(&tokens, new_token(ft_substr(&input[i++], 0, 1), PIPE));
-			else if (input[i] == '<' && input[i + 1] == '<')
-			{
-				append_token(&tokens, new_token(ft_substr(&input[i], 0, 2), HEREDOC));
-				i += 2;
-			}
-			else if (input[i] == '>' && input[i + 1] == '>')
-			{
-				append_token(&tokens, new_token(ft_substr(&input[i], 0, 2), REDIR_APPEND));
-				i += 2;
-			}
-			else if (input[i] == '<')
-				append_token(&tokens, new_token(ft_substr(&input[i++], 0, 1), REDIR_IN));
-			else if (input[i] == '>')
-				append_token(&tokens, new_token(ft_substr(&input[i++], 0, 1), REDIR_OUT));
-		}
-		// 3. Tırnakları ve kelimeleri işle (2-3 Mayıs)
-		else
-		{
-			int start = i;
-			char quote_char = 0;
-			if (input[i] == '\'' || input[i] == '"')
-			{
-				quote_char = input[i];
-				i++; // Tırnağı atla
-				start++; // Kelime başlangıcını güncelle
-				while (input[i] && input[i] != quote_char)
-					i++;
-				if (!input[i]) // Kapanmamış tırnak hatası
-				{
-					fprintf(stderr, "minishell: syntax error: unclosed quote\n"); // fprintf yok printf var
-					free_token_list(tokens);
-					return (NULL);
-				}
-                // Kelimeyi tırnaklar olmadan al
-				append_token(&tokens, new_token(ft_substr(input, start, i - start), WORD));
-				i++; // Kapanış tırnağını atla
-			}
-			else
-			{
-                // Normal kelime (boşluk veya operatöre kadar)
-				while (input[i] && !strchr(" \t\n|<>", input[i]))
-					i++;
-				append_token(&tokens, new_token(ft_substr(input, start, i - start), WORD));
-			}
-		}
-	}
-	return (tokens);
-}
-
 // Debug fonksiyonu (2 Mayıs)
 void print_tokens(t_token *tokens)
 {
@@ -130,15 +62,58 @@ void print_tokens(t_token *tokens)
 	}
 }
 
-// Token listesini temizleme fonksiyonu (8 Mayıs)
-void free_token_list(t_token *tokens)
+// Tırnak içindeki metni doğru şekilde işleyen yardımcı fonksiyon
+static int	handle_quotes(const char *input, int i, t_token **tokens)
 {
-	t_token *tmp;
-	while (tokens)
+	char	quote_char;
+	int		start;
+
+	quote_char = input[i];
+	i++;
+	start = i;
+	while (input[i] && input[i] != quote_char)
+		i++;
+	append_token(tokens, new_token(ft_substr(input, start, i - start), WORD));
+	if (input[i] == quote_char)
+		i++; // Kapanış tırnağını atla
+	return (i);
+}
+
+// Ana tokenizer fonksiyonunun düzeltilmiş hali
+t_token	*tokenize(const char *input)
+{
+	t_token	*tokens;
+	int		i;
+	int		start;
+
+	tokens = NULL;
+	i = 0;
+	while (input[i])
 	{
-		tmp = tokens->next;
-		free(tokens->value);
-		free(tokens);
-		tokens = tmp;
+		if (strchr(" \t\n\v\f\r", input[i]))
+			i++;
+		else if (input[i] == '\'' || input[i] == '"')
+			i = handle_quotes(input, i, &tokens);
+		else if (strchr("|<>", input[i]))
+		{
+			if (input[i + 1] == '>' && input[i] == '>')
+				append_token(&tokens, new_token(ft_substr(&input[i], 0, 2), REDIR_APPEND)), i += 2;
+			else if (input[i + 1] == '<' && input[i] == '<')
+				append_token(&tokens, new_token(ft_substr(&input[i], 0, 2), HEREDOC)), i += 2;
+			else if (input[i] == '>')
+				append_token(&tokens, new_token(ft_substr(&input[i++], 0, 1), REDIR_OUT));
+			else if (input[i] == '<')
+				append_token(&tokens, new_token(ft_substr(&input[i++], 0, 1), REDIR_IN));
+			else if (input[i] == '|')
+				append_token(&tokens, new_token(ft_substr(&input[i++], 0, 1), PIPE));
+		}
+		else
+		{
+			start = i;
+			while (input[i] && !strchr(" \t\n\v\f\r|<>\"'", input[i]))
+				i++;
+			append_token(&tokens, new_token(ft_substr(input, start, i - start), WORD));
+		}
 	}
+	return (tokens);
 }
