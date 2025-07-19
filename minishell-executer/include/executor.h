@@ -11,6 +11,7 @@
 # include <errno.h>
 # include <string.h>
 
+
 /*
  * Komut çalıştırma durumunu tutan yapı
  * Aktif process bilgisi, pipe FD'leri ve exit statusları

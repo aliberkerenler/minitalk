@@ -52,18 +52,30 @@ int execute_commands(t_command *cmd_list, t_shell *shell)
     return (ctx.exit_status);
 }
 
-/*
- * Dahili komutları çalıştırır (echo, cd, pwd, export, unset, env, exit)
- * Bu fonksiyon, builtins modülündeki işlevleri çağıracak şekilde güncellenecektir
- */
+// executor.c dosyasındaki execute_builtin fonksiyonunu bununla değiştir:
+
+#include "builtins.h" // Yeni header'ı ekle
+
 void execute_builtin(t_command *cmd, t_shell *shell, t_exec_context *ctx)
 {
-    // TEMP: Bu kısım ileride builtins modülü ile entegre edilecektir
-    (void)shell; // shell parametresi kullanılana kadar uyarıyı engelle
-    printf("Dahili komut çalıştırılacak: %s\n", cmd->args[0]);
-    
-    // Başarı durumunda ctx->exit_status = 0; olarak ayarla
-    ctx->exit_status = 0;
+    int status = 0;
+
+    if (strcmp(cmd->args[0], "echo") == 0)
+        status = builtin_echo(cmd);
+    else if (strcmp(cmd->args[0], "pwd") == 0)
+        status = builtin_pwd();
+    else if (strcmp(cmd->args[0], "cd") == 0)
+        status = builtin_cd(cmd, shell);
+    else if (strcmp(cmd->args[0], "env") == 0)
+        status = builtin_env(shell);
+    else if (strcmp(cmd->args[0], "export") == 0)
+        status = builtin_export(cmd, shell);
+    else if (strcmp(cmd->args[0], "unset") == 0)
+        status = builtin_unset(cmd, shell);
+    else if (strcmp(cmd->args[0], "exit") == 0)
+        builtin_exit(cmd, shell); // exit geri değer döndürmez, doğrudan çıkar.
+
+    ctx->exit_status = status;
 }
 /*
  * Harici komutları çalıştırır (fork + execve)
