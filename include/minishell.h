@@ -14,5 +14,6 @@ typedef struct s_shell {
     char *pwd;             // Mevcut çalışma dizini (heap'te tutulur)
     char *old_pwd;         // Önceki çalışma dizini (heap'te tutulur)
 } t_shell;
+void	signal_handler(int signum);
 
 #endif

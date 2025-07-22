@@ -1,156 +1,134 @@
 #include "executor.h"
 #include "libft.h"
+#include "env.h"
 #include <unistd.h>
 #include <ctype.h>
 
-// Get environment variable value
-static char	*get_env_value(const char *var_name, char **envp, int last_exit_status)
+static char	*expand_variables(const char *str, t_shell *shell);
+
+// CORRECTED: Now takes t_shell * to get envp and last_exit_status
+static char	*get_env_value(const char *var_name, t_shell *shell)
 {
-	int		i;
-	int		len;
+	int		index;
+	char	*eq_ptr;
 
-	// Handle special variables
 	if (ft_strcmp(var_name, "?") == 0)
-	{
-		return (ft_itoa(last_exit_status));
-	}
-	if (ft_strcmp(var_name, "$") == 0)
-	{
-		return (ft_itoa(getpid()));
-	}
-
-	// Handle regular environment variables
-	len = ft_strlen(var_name);
-	i = 0;
-	while (envp[i])
-	{
-		if (ft_strncmp(envp[i], var_name, len) == 0 && envp[i][len] == '=')
-			return (ft_strdup(envp[i] + len + 1));
-		i++;
-	}
-	return (ft_strdup(""));
+		return (ft_itoa(shell->last_exit_status));
+	index = find_env_index(var_name, shell);
+	if (index == -1)
+		return (ft_strdup(""));
+	eq_ptr = ft_strchr(shell->envp[index], '=');
+	if (!eq_ptr)
+		return (ft_strdup(""));
+	return (ft_strdup(eq_ptr + 1));
 }
 
-// Expand environment variables in a string (bash-compatible)
-static char	*expand_variables(const char *str, char **envp, int last_exit_status)
+// Değişken adının uzunluğunu hesaplar (örn: $USER -> 4)
+static int	get_var_name_len(const char *str)
 {
-	char	*result;
-	char	*temp;
+	int	i;
+
+	i = 0;
+	if (str[i] == '?' || str[i] == '$')
+		return (1);
+	while (str[i] && (ft_isalnum(str[i]) || str[i] == '_'))
+		i++;
+	return (i);
+}
+
+static size_t	calculate_expanded_len(const char *str, t_shell *shell)
+{
+	size_t	len;
 	char	*var_name;
 	char	*var_value;
-	int		i, j, start;
-	int		result_len;
-	int		in_double_quotes;
+	int		i;
 
-	if (!str)
-		return (ft_strdup(""));
-
-	// Check if this is a single-quoted string (literal - no expansion)
-	if (str[0] == '\'' && str[ft_strlen(str) - 1] == '\'' && ft_strlen(str) > 1)
+	len = 0;
+	i = 0;
+	while (str[i])
 	{
-		// Single quotes: return content without quotes, no expansion
-		return (ft_substr(str, 1, ft_strlen(str) - 2));
+		if (str[i] == '$' && str[i + 1])
+		{
+			var_name = ft_substr(str, i + 1, get_var_name_len(str + i + 1));
+			// CORRECTED: Passing correct arguments
+			var_value = get_env_value(var_name, shell);
+			len += ft_strlen(var_value);
+			i += ft_strlen(var_name) + 1;
+			free(var_name);
+			free(var_value);
+		}
+		else
+		{
+			len++;
+			i++;
+		}
 	}
+	return (len);
+}
 
-	// Check if this is a double-quoted string (starts and ends with ")
-	in_double_quotes = (str[0] == '"' && str[ft_strlen(str) - 1] == '"' && ft_strlen(str) > 1);
-	
-	// If it's a double-quoted string, remove quotes and expand variables
-	if (in_double_quotes)
-	{
-		// Remove surrounding quotes
-		char *unquoted = ft_substr(str, 1, ft_strlen(str) - 2);
-		if (!unquoted)
-			return (ft_strdup(""));
-		
-		// Expand variables in the unquoted content
-		char *expanded = expand_variables(unquoted, envp, last_exit_status);
-		free(unquoted);
-		return (expanded);
-	}
+// CORRECTED: Main expansion function now correctly calls its helper
+static char	*expand_variables(const char *str, t_shell *shell)
+{
+	char	*result;
+	char	*var_name;
+	char	*var_value;
+	int		i;
+	int		j;
 
-	// If no $ found, return as-is
-	if (!ft_strchr(str, '$'))
-		return (ft_strdup(str));
-
-	// Calculate approximate result length (overestimate)
-	result_len = ft_strlen(str) * 2;
-	result = malloc(result_len);
-	if (!result)
-		return (NULL);
-
+	result = (char *)malloc(calculate_expanded_len(str, shell) + 1);
+	if (!result) return (NULL);
 	i = 0;
 	j = 0;
 	while (str[i])
 	{
 		if (str[i] == '$' && str[i + 1])
 		{
-			i++; // Skip '$'
-			start = i;
-
-			// Handle special single-character variables
-			if (str[i] == '?' || str[i] == '$')
-			{
-				var_name = ft_substr(str, start, 1);
-				i++;
-			}
-			else if (isalpha(str[i]) || str[i] == '_')
-			{
-				// Handle regular variable names
-				while (str[i] && (isalnum(str[i]) || str[i] == '_'))
-					i++;
-				var_name = ft_substr(str, start, i - start);
-			}
-			else
-			{
-				// Just a '$' with invalid variable name, treat as literal
-				result[j++] = '$';
-				continue;
-			}
-
-			if (var_name)
-			{
-				var_value = get_env_value(var_name, envp, last_exit_status);
-				free(var_name);
-
-				if (var_value)
-				{
-					// Copy variable value to result
-					int k = 0;
-					while (var_value[k] && j < result_len - 1)
-						result[j++] = var_value[k++];
-					free(var_value);
-				}
-			}
+			var_name = ft_substr(str, i + 1, get_var_name_len(str + i + 1));
+			var_value = get_env_value(var_name, shell);
+			ft_strlcpy(result + j, var_value, ft_strlen(var_value) + 1);
+			j += ft_strlen(var_value);
+			i += ft_strlen(var_name) + 1;
+			free(var_name);
+			free(var_value);
 		}
 		else
-		{
 			result[j++] = str[i++];
-		}
 	}
 	result[j] = '\0';
-
-	// Resize result to actual length
-	temp = ft_strdup(result);
-	free(result);
-	return (temp);
+	return (result);
 }
 
-// Expand variables in command arguments
-static void	expand_command_args(t_command *cmd, char **envp, int last_exit_status)
+static void	expand_command_args(t_command *cmd, t_shell *shell)
 {
 	int		i;
+	char	*arg;
+	char	*unquoted;
 	char	*expanded;
-
-	if (!cmd || !cmd->args)
-		return;
 
 	i = 0;
 	while (cmd->args[i])
 	{
-		expanded = expand_variables(cmd->args[i], envp, last_exit_status);
-		if (expanded)
+		arg = cmd->args[i];
+		// 1. Single quotes: No expansion, just remove quotes.
+		if (arg[0] == '\'' && arg[ft_strlen(arg) - 1] == '\'')
 		{
+			unquoted = ft_substr(arg, 1, ft_strlen(arg) - 2);
+			free(cmd->args[i]);
+			cmd->args[i] = unquoted;
+		}
+		// 2. Double quotes: Remove quotes, then expand inside.
+		else if (arg[0] == '"' && arg[ft_strlen(arg) - 1] == '"')
+		{
+			unquoted = ft_substr(arg, 1, ft_strlen(arg) - 2);
+			expanded = expand_variables(unquoted, shell);
+			free(unquoted);
+			free(cmd->args[i]);
+			cmd->args[i] = expanded;
+		}
+		// 3. No quotes but contains $: expand directly.
+		else if (ft_strchr(arg, '$'))
+		{
+			expanded = expand_variables(arg, shell);
 			free(cmd->args[i]);
 			cmd->args[i] = expanded;
 		}
@@ -158,208 +136,145 @@ static void	expand_command_args(t_command *cmd, char **envp, int last_exit_statu
 	}
 }
 
-/*
- * Komut listesini çalıştıran ana fonksiyon
- * Parser'dan gelen komut yapısını alır ve sırayla çalıştırır
- */
-int execute_commands(t_command *cmd_list, t_shell *shell)
+#include "builtins.h"
+
+// Ana süreci etkilemesi gereken dahili komutları çalıştırır.
+static int	execute_parent_builtin(t_command *cmd, t_shell *shell)
 {
-    t_exec_context ctx;
-    t_command *current;
-    int cmd_count;
+	int	status;
 
-    if (!cmd_list || !cmd_list->args || !cmd_list->args[0])
-        return (0); // Boş komut durumu
-
-    // Çalıştırma bağlamını başlat
-    ctx.prev_pipe_read = -1;
-    ctx.exit_status = 0;
-    ctx.envp = shell->envp; // Shell'den çevre değişkenlerini al
-
-    // Komutları say (pipe yönetimi için)
-    current = cmd_list;
-    cmd_count = 0;
-    while (current)
-    {
-        cmd_count++;
-        current = current->next_command;
-    }
-
-    // Komutları çalıştır
-    current = cmd_list;
-    cmd_count = 1;
-    while (current)
-    {
-        // Expand environment variables in command arguments
-        expand_command_args(current, shell->envp, shell->last_exit_status);
-
-        // Builtin komut mu diye kontrol et
-        if (is_builtin(current->args[0]))
-        {
-            execute_builtin(current, shell, &ctx);
-        }
-        else
-        {
-            ctx.exit_status = execute_external(current, shell, &ctx);
-        }
-
-        current = current->next_command;
-        cmd_count++;
-    }
-
-    // Çıkış durumunu shell'e kaydet
-    shell->last_exit_status = ctx.exit_status;
-    return (ctx.exit_status);
+	status = 0;
+	if (ft_strcmp(cmd->args[0], "cd") == 0)
+		status = builtin_cd(cmd, shell);
+	else if (ft_strcmp(cmd->args[0], "export") == 0 && cmd->args[1])
+		status = builtin_export(cmd, shell);
+	else if (ft_strcmp(cmd->args[0], "unset") == 0)
+		status = builtin_unset(cmd, shell);
+	else if (ft_strcmp(cmd->args[0], "exit") == 0)
+		builtin_exit(cmd, shell);
+	else
+		return (-1); // Bu bir "parent" built-in değil.
+	return (status);
 }
 
-// executor.c dosyasındaki execute_builtin fonksiyonunu bununla değiştir:
-
-#include "builtins.h" // Yeni header'ı ekle
-
-void execute_builtin(t_command *cmd, t_shell *shell, t_exec_context *ctx)
+// Çocuk süreç (child process) içinde çalışacak olan komut mantığı
+static void	child_process_execution(t_command *cmd, t_shell *shell)
 {
-    int status = 0;
-    int saved_stdout = -1;
-    int saved_stdin = -1;
+	char	*cmd_path;
 
-    // Save original file descriptors if redirections exist
-    if (cmd->redirs)
-    {
-        saved_stdout = dup(STDOUT_FILENO);
-        saved_stdin = dup(STDIN_FILENO);
-        setup_redirections(cmd);
-    }
+	// Çocuk süreçler sinyalleri varsayılan olarak ele alsın
+	signal(SIGINT, SIG_DFL);
+	signal(SIGQUIT, SIG_DFL);
 
-    if (ft_strcmp(cmd->args[0], "echo") == 0)
-        status = builtin_echo(cmd);
-    else if (ft_strcmp(cmd->args[0], "pwd") == 0)
-        status = builtin_pwd();
-    else if (ft_strcmp(cmd->args[0], "cd") == 0)
-        status = builtin_cd(cmd, shell);
-    else if (ft_strcmp(cmd->args[0], "env") == 0)
-        status = builtin_env(shell);
-    else if (ft_strcmp(cmd->args[0], "export") == 0)
-        status = builtin_export(cmd, shell);
-    else if (ft_strcmp(cmd->args[0], "unset") == 0)
-        status = builtin_unset(cmd, shell);
-    else if (ft_strcmp(cmd->args[0], "exit") == 0)
-        builtin_exit(cmd, shell); // exit geri değer döndürmez, doğrudan çıkar.
+	expand_command_args(cmd, shell);
 
-    // Restore original file descriptors if they were saved
-    if (cmd->redirs)
-    {
-        if (saved_stdout != -1)
-        {
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);
-        }
-        if (saved_stdin != -1)
-        {
-            dup2(saved_stdin, STDIN_FILENO);
-            close(saved_stdin);
-        }
-    }
-
-    ctx->exit_status = status;
+	if (setup_redirections(cmd) != 0) // Dosya yönlendirmelerini ayarla
+		exit(1);
+	if (is_builtin(cmd->args[0]))
+	{
+		// echo, pwd, env gibi builtin'ler çocuk süreçte çalışabilir
+		if (ft_strcmp(cmd->args[0], "echo") == 0)
+			exit(builtin_echo(cmd));
+		if (ft_strcmp(cmd->args[0], "pwd") == 0)
+			exit(builtin_pwd());
+		if (ft_strcmp(cmd->args[0], "env") == 0)
+			exit(builtin_env(shell));
+		if (ft_strcmp(cmd->args[0], "export") == 0) // Sadece `export` komutu
+			exit(builtin_export(cmd, shell));
+	}
+	cmd_path = get_command_path(cmd->args[0]);
+	if (!cmd_path)
+	{
+		handle_execution_error(cmd->args[0]);
+		exit(127);
+	}
+	execve(cmd_path, cmd->args, shell->envp);
+	perror(cmd->args[0]);
+	free(cmd_path);
+	exit(126);
 }
-/*
- * Harici komutları çalıştırır (fork + execve)
- * Pipe ve yönlendirme işlemlerini de yönetir
- */
-int execute_external(t_command *cmd, t_shell *shell, t_exec_context *ctx)
+
+// Pipe ve fork mantığını içeren ana execute fonksiyonu
+static int	execute_pipeline(t_command *cmd, t_shell *shell)
 {
-    pid_t pid;
-    int status;
-    char *cmd_path;
+	int		pipe_fd[2];
+	int		in_fd;
+	pid_t	pid;
+	int		last_status;
 
-    (void)shell; // shell parametresi kullanılana kadar uyarıyı engelle
+	in_fd = STDIN_FILENO;
+	last_status = 0;
+	while (cmd)
+	{
+		if (cmd->next_command)
+			if (pipe(pipe_fd) == -1)
+				return (perror("pipe"), 1);
+		pid = fork();
+		if (pid == -1)
+			return (perror("fork"), 1);
+		if (pid == 0) // Çocuk süreç
+		{
+			if (in_fd != STDIN_FILENO)
+			{
+				dup2(in_fd, STDIN_FILENO);
+				close(in_fd);
+			}
+			if (cmd->next_command)
+			{
+				close(pipe_fd[0]);
+				dup2(pipe_fd[1], STDOUT_FILENO);
+				close(pipe_fd[1]);
+			}
+			child_process_execution(cmd, shell);
+		}
+		if (in_fd != STDIN_FILENO)
+			close(in_fd);
+		if (cmd->next_command)
+		{
+			close(pipe_fd[1]);
+			in_fd = pipe_fd[0];
+		}
+		cmd = cmd->next_command;
+	}
+	waitpid(pid, &last_status, 0);
+	while (wait(NULL) != -1);
+	// --- YENİ SATIR DÜZELTMESİ ---
+	// Eğer çocuk süreç bir sinyal ile sonlandırıldıysa (WIFSIGNALED)
+	// ve bu sinyal SIGINT (ctrl+C) ise, yeni bir satır bas.
+	if (WIFSIGNALED(last_status) && WTERMSIG(last_status) == SIGINT)
+		write(1, "\n", 1);
+	if (WIFEXITED(last_status))
+		return (WEXITSTATUS(last_status));
+	else if (WIFSIGNALED(last_status))
+		return (128 + WTERMSIG(last_status));
+	return (last_status);
+}
 
-    // Komut yolunu bul
-    cmd_path = get_command_path(cmd->args[0], ctx->envp);
-    if (!cmd_path)
-    {
-        ft_putstr_fd("minishell: ", 2);
-        ft_putstr_fd(cmd->args[0], 2);
-        ft_putstr_fd(": command not found\n", 2);
-        return (127); // Komut bulunamadı hatası
-    }
+// Executor modülünün ana giriş noktası.
+int	execute_commands(t_command *cmd, t_shell *shell)
+{
+	int	status;
 
-    // Pipe kur (eğer varsa)
-    if (cmd->next_command)
-    {
-        if (pipe(ctx->pipe_fd) == -1)
-        {
-            perror("minishell: pipe");
-            free(cmd_path);
-            return (1);
-        }
-    }
-
-    // Yeni process oluştur
-    pid = fork();
-    if (pid == -1)
-    {
-        perror("minishell: fork");
-        free(cmd_path);
-        return (1);
-    }
-
-    // Child process
-    if (pid == 0)
-    {
-        // Pipe ve yönlendirmeleri ayarla
-        if (ctx->prev_pipe_read != -1)
-        {
-            dup2(ctx->prev_pipe_read, STDIN_FILENO);
-            close(ctx->prev_pipe_read);
-        }
-
-        if (cmd->next_command)
-        {
-            dup2(ctx->pipe_fd[1], STDOUT_FILENO);
-            close(ctx->pipe_fd[0]);
-            close(ctx->pipe_fd[1]);
-        }
-
-        // Dosya yönlendirmelerini ayarla
-        setup_redirections(cmd);
-
-        // Komutu çalıştır
-        execve(cmd_path, cmd->args, ctx->envp);
-        
-        // execve başarısız olduysa buraya gelir
-        handle_execution_error(cmd->args[0]);
-        exit(126); // Çalıştırma hatası
-    }
-
-    // Parent process
-    ctx->last_pid = pid;
-    
-    // Önceki pipe'ı kapat
-    if (ctx->prev_pipe_read != -1)
-        close(ctx->prev_pipe_read);
-    
-    // Pipe durumunu güncelle
-    if (cmd->next_command)
-    {
-        close(ctx->pipe_fd[1]);
-        ctx->prev_pipe_read = ctx->pipe_fd[0];
-    }
-    else
-    {
-        ctx->prev_pipe_read = -1;
-    }
-
-    // Son komutu bekle
-    if (!cmd->next_command)
-    {
-        waitpid(pid, &status, 0);
-        if (WIFEXITED(status))
-            status = WEXITSTATUS(status);
-        else if (WIFSIGNALED(status))
-            status = 128 + WTERMSIG(status);
-    }
-
-    free(cmd_path);
-    return (status);
+	if (!cmd || !cmd->args || !cmd->args[0])
+		return (0);
+	if (!cmd->next_command && is_builtin(cmd->args[0]))
+	{
+		status = execute_parent_builtin(cmd, shell);
+		if (status != -1)
+		{
+			shell->last_exit_status = status;
+			return (status);
+		}
+	}
+	// --- SİNYAL DÜZELTMESİ (Ana Süreç) ---
+	// 1. Çocuk süreçler çalışırken ana shell ctrl+C'yi görmezden gelsin.
+	signal(SIGINT, SIG_IGN);
+	
+	status = execute_pipeline(cmd, shell);
+	
+	// 2. Çocuk süreçler bittikten sonra ana shell'in sinyal yöneticisini geri yükle.
+	signal(SIGINT, signal_handler);
+	
+	shell->last_exit_status = status;
+	return (status);
 }

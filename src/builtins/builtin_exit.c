@@ -6,6 +6,8 @@
 
 void free_shell_resources(t_shell *shell); // Prototip
 
+
+
 static int is_numeric(const char *s)
 {
     if (!s || !*s) return 0;
@@ -13,7 +15,7 @@ static int is_numeric(const char *s)
     if (!*s) return 0;
     while (*s)
     {
-        if (!isdigit(*s)) return 0;
+        if (!ft_isdigit(*s)) return 0;
         s++;
     }
     return 1;

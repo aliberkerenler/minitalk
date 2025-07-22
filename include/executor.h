@@ -33,11 +33,11 @@ void    execute_builtin(t_command *cmd, t_shell *shell, t_exec_context *ctx);
 int     execute_external(t_command *cmd, t_shell *shell, t_exec_context *ctx);
 
 /* Yardımcı Fonksiyonlar */
-char    *get_command_path(char *cmd_name, char **envp);
-void    setup_redirections(t_command *cmd);
+char    *get_command_path(const char *cmd);
+int    setup_redirections(t_command *cmd);
 void    setup_pipes(t_exec_context *ctx, int is_last_cmd);
 void    close_fds(t_exec_context *ctx);
-void    handle_execution_error(char *cmd);
+void    handle_execution_error(const char *cmd_name);
 int     is_builtin(char *cmd);
 int	ft_strcmp(const char *s1, const char *s2);
 void	ft_free_split(char **split_array);

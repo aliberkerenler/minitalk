@@ -20,6 +20,8 @@ void signal_handler(int signum)
         write(1, "\n", 1);
         rl_on_new_line();
         rl_replace_line("", 0);
+        // Always redisplay to ensure prompt appears
+        // This is the most bash-compatible approach
         rl_redisplay();
     }
 }
@@ -59,7 +61,19 @@ int main(int argc, char **argv, char **envp)
 
     while (1)
     {
+        // Reset signal status before readline
+        g_signal_status = 0;
+        
         input = readline("minishell> ");
+        
+        // Check if we got interrupted by signal
+        if (g_signal_status == SIGINT)
+        {
+            if (input)
+                free(input);
+            continue; // Skip processing and go to next iteration
+        }
+        
         if (input == NULL)
         {
             printf("exit\n");

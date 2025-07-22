@@ -5,99 +5,78 @@
  * Verilen komutun PATH içerisindeki tam yolunu bulur
  * Örn: "ls" -> "/bin/ls"
  */
-char *get_command_path(char *cmd_name, char **envp)
+char	*get_command_path(const char *cmd)
 {
-    char *path_env;
-    char **paths;
-    char *temp_path;
-    char *full_path;
-    int i;
+	char	**paths;
+	char	*path;
+	char	*full_path;
+	int		i;
+	char	*path_env;
 
-    if (cmd_name[0] == '/' || cmd_name[0] == '.')
-        return (ft_strdup(cmd_name));
-    
-    i = 0;
-    while (envp && envp[i] && ft_strncmp(envp[i], "PATH=", 5) != 0)
-        i++;
-    if (!envp || !envp[i])
-        return (NULL);
-    path_env = envp[i] + 5;
-
-    paths = ft_split(path_env, ':');
-    i = 0;
-    while (paths[i])
-    {
-        temp_path = ft_strjoin(paths[i], "/");
-        full_path = ft_strjoin(temp_path, cmd_name);
-        free(temp_path);
-        if (access(full_path, F_OK | X_OK) == 0)
-        {
-            ft_free_split(paths); // ft_split'in ayırdığı belleği temizle
-            return (full_path);
-        }
-        free(full_path);
-        i++;
-    }
-    ft_free_split(paths);
-    return (NULL);
+	if (!cmd || cmd[0] == '\0') return (NULL);
+	if (ft_strchr(cmd, '/'))
+	{
+		if (access(cmd, X_OK) == 0)
+			return (ft_strdup(cmd));
+		else
+			return (NULL);
+	}
+	path_env = getenv("PATH");
+	if (!path_env) return (NULL);
+	paths = ft_split(path_env, ':');
+	i = -1;
+	while (paths && paths[++i])
+	{
+		path = ft_strjoin(paths[i], "/");
+		full_path = ft_strjoin(path, cmd);
+		free(path);
+		if (access(full_path, X_OK) == 0)
+		{
+			ft_free_split(paths);
+			return (full_path);
+		}
+		free(full_path);
+	}
+	if (paths)
+		ft_free_split(paths);
+	return (NULL);
 }
 
-/*
- * Yönlendirmeleri (redirection) ayarlar
- * < (input), > (output), >> (append), << (heredoc)
- */
-void setup_redirections(t_command *cmd)
+void	handle_execution_error(const char *cmd_name)
 {
-    t_redir *redir;
-	char *error_prefix;
-    int fd;
+	ft_putstr_fd("minishell: ", 2);
+	ft_putstr_fd((char *)cmd_name, 2);
+	ft_putstr_fd(": command not found\n", 2);
+}
 
-    redir = cmd->redirs;
-    while (redir)
-    {
-        if (redir->type == REDIR_IN) // <
-        {
-            fd = open(redir->file, O_RDONLY);
-            if (fd == -1)
-            {
-				error_prefix = ft_strjoin("minishell: ", redir->file);
-				perror(error_prefix);
-				free(error_prefix);
-                exit(1);
-            }
-            dup2(fd, STDIN_FILENO);
-            close(fd);
-        }
-        else if (redir->type == REDIR_OUT) // >
-        {
-            fd = open(redir->file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            if (fd == -1)
-            {
-                error_prefix = ft_strjoin("minishell: ", redir->file);
-				perror(error_prefix);
-				free(error_prefix);
-                exit(1);
-            }
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-        }
-        else if (redir->type == REDIR_APPEND) // >>
-        {
-            fd = open(redir->file, O_WRONLY | O_CREAT | O_APPEND, 0644);
-            if (fd == -1)
-            {
-                error_prefix = ft_strjoin("minishell: ", redir->file);
-				perror(error_prefix);
-				free(error_prefix);
-                exit(1);
-            }
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-        }
-        // HEREDOC (<<) yönlendirmesi parser tarafından işlenmeli
+int	setup_redirections(t_command *cmd)
+{
+	t_redir	*redir;
+	int		fd;
 
-        redir = redir->next;
-    }
+	redir = cmd->redirs;
+	while (redir)
+	{
+		if (redir->type == REDIR_OUT)
+			fd = open(redir->file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		else if (redir->type == REDIR_APPEND)
+			fd = open(redir->file, O_WRONLY | O_CREAT | O_APPEND, 0644);
+		else
+			fd = open(redir->file, O_RDONLY);
+		if (fd == -1)
+		{
+			ft_putstr_fd("minishell: ", 2);
+			perror(redir->file);
+			return (1);
+		}
+		if (redir->type == REDIR_IN || redir->type == HEREDOC)
+			dup2(fd, STDIN_FILENO);
+		else
+			dup2(fd, STDOUT_FILENO);
+		close(fd);
+		redir = redir->next;
+	}
+	return (0);
 }
 
 /*
@@ -137,20 +116,6 @@ void close_fds(t_exec_context *ctx)
     }
 }
 
-/*
- * Çalıştırma hatalarını işler ve uygun hata mesajını gösterir
- */
-void handle_execution_error(char *cmd)
-{
-    ft_putstr_fd("minishell: ", 2);
-    ft_putstr_fd(cmd, 2);
-    if (errno == ENOENT)
-        ft_putstr_fd(": No such file or directory\n", 2);
-    else if (errno == EACCES)
-        ft_putstr_fd(": Permission denied\n", 2);
-    else
-        perror("minishell");
-}
 
 /*
  * Verilen komutun dahili (builtin) bir komut olup olmadığını kontrol eder
@@ -161,7 +126,8 @@ int is_builtin(char *cmd)
     int i = 0;
     while (builtins[i])
     {
-        if (ft_strcmp(cmd, builtins[i]) == 0)            return (1);
+        if (ft_strcmp(cmd, builtins[i]) == 0)
+		    return (1);
         i++;
     }
     return (0);
