@@ -41,6 +41,8 @@ void free_command_list(t_command *cmds)
 		cmd_tmp = cmds->next_command;
 		// 1. Argümanları temizle
 		free_args(cmds->args);
+		// 1.5. Quote types dizisini temizle
+		free(cmds->quote_types);
 		// 2. Yönlendirmeleri temizle
 		while (cmds->redirs)
 		{
@@ -80,10 +82,19 @@ int	check_syntax(t_token *tokens)
 				ft_putstr_fd("minishell: syntax error near unexpected token `newline'\n", 2);
 				return (0);
 			}
-			if (tokens->next->type != WORD)
+			// For redirections, next token must be WORD (filename)
+			if (tokens->type != PIPE && tokens->next->type != WORD)
 			{
 				ft_putstr_fd("minishell: syntax error near unexpected token `", 2);
 				ft_putstr_fd(tokens->value, 2);
+				ft_putstr_fd("'\n", 2);
+				return (0);
+			}
+			// For pipes, allow redirections or words after pipe (bash behavior)
+			if (tokens->type == PIPE && tokens->next->type != WORD && tokens->next->type < REDIR_IN)
+			{
+				ft_putstr_fd("minishell: syntax error near unexpected token `", 2);
+				ft_putstr_fd(tokens->next->value, 2);
 				ft_putstr_fd("'\n", 2);
 				return (0);
 			}
@@ -109,6 +120,7 @@ static t_command *create_cmd_node(void)
 	if (!cmd)
 		return (NULL);
 	cmd->args = NULL;
+	cmd->quote_types = NULL;
 	cmd->redirs = NULL;
 	cmd->next_command = NULL;
 	return (cmd);
@@ -178,19 +190,25 @@ static void fill_args(t_command *cmd, t_token **start, t_token *end)
 
 	arg_count = count_args(*start, end);
 	cmd->args = (char **)malloc(sizeof(char *) * (arg_count + 1));
-	if (!cmd->args)
+	cmd->quote_types = (char *)malloc(sizeof(char) * (arg_count + 1));
+	if (!cmd->args || !cmd->quote_types)
 		return ; // Hata yönetimi eklenmeli
 	
 	i = 0;
 	while (*start != end)
 	{
 		if ((*start)->type == WORD)
-			cmd->args[i++] = ft_strdup((*start)->value);
+		{
+			cmd->args[i] = ft_strdup((*start)->value);
+			cmd->quote_types[i] = (*start)->quote_type;
+			i++;
+		}
 		else if ((*start)->type >= REDIR_IN && (*start)->type <= HEREDOC)
 			*start = (*start)->next; // Dosya adını atla
 		*start = (*start)->next;
 	}
 	cmd->args[i] = NULL;
+	cmd->quote_types[i] = 0;
 }
 
 

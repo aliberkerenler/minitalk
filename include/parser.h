@@ -31,6 +31,7 @@ typedef struct s_token
 {
 	char			*value;      // Token'ın değeri (örn: "ls", ">")
 	t_token_type	type;        // Token'ın türü (yukarıdaki enum)
+	char			quote_type;  // Quote context: 0=none, '"'=double, '\''=single
 	struct s_token	*next;       // Sonraki token'a işaretçi
 }	t_token;
 
@@ -53,6 +54,7 @@ typedef struct s_redir
 typedef struct s_command
 {
 	char				**args;      // Komut ve argümanları (örn: {"ls", "-l", NULL})
+	char				*quote_types; // Quote context for each arg: 0=none, '"'=double, '\''=single
 	t_redir				*redirs;     // Yönlendirme listesi
 	struct s_command	*next_command;  // Pipe ile bağlı sonraki komut
 }	t_command;

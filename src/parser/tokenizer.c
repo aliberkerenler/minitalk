@@ -3,6 +3,9 @@
 #include <ctype.h>
 #include "libft.h"
 
+// Forward declaration for shell context (needed for variable expansion)
+extern t_shell *g_shell;
+
 // Yardımcı fonksiyon: Yeni bir token oluşturur
 static t_token *new_token(char *value, t_token_type type)
 {
@@ -11,6 +14,20 @@ static t_token *new_token(char *value, t_token_type type)
 		return (NULL);
 	token->value = value;
 	token->type = type;
+	token->quote_type = 0;  // Default: no quotes
+	token->next = NULL;
+	return (token);
+}
+
+// Helper function to create token with quote context
+static t_token *new_token_with_quotes(char *value, t_token_type type, char quote_type)
+{
+	t_token *token = (t_token *)malloc(sizeof(t_token));
+	if (!token)
+		return (NULL);
+	token->value = value;
+	token->type = type;
+	token->quote_type = quote_type;
 	token->next = NULL;
 	return (token);
 }
@@ -55,6 +72,9 @@ static int build_word_token(const char *input, int start_pos, t_token **tokens)
 	int total_len = 0;
 	char *final_word;
 	int j;
+	char dominant_quote = 0; // Track if entire token is single-quoted
+	int has_single_quote = 0;
+	int has_other_content = 0;
 
 	// Collect all adjacent segments (quoted and unquoted) that form one logical word
 	while (input[i] && !ft_strchr(" \t\n\v\f\r|<>", input[i]))
@@ -67,6 +87,12 @@ static int build_word_token(const char *input, int start_pos, t_token **tokens)
 			i++;
 			while (input[i] && input[i] != quote_char)
 				i++;
+			
+			// Track quote context
+			if (quote_char == '\'' && part_count == 0 && !has_other_content)
+				has_single_quote = 1;
+			else if (quote_char != '\'')
+				has_other_content = 1;
 			
 			// Extract content without quotes
 			word_parts[part_count] = ft_substr(input, quote_start, i - quote_start);
@@ -81,8 +107,9 @@ static int build_word_token(const char *input, int start_pos, t_token **tokens)
 		else
 		{
 			// Handle unquoted segment
+			has_other_content = 1;
 			int seg_start = i;
-			while (input[i] && !ft_strchr(" \t\n\v\f\r|<>'\"", input[i]))
+			while (input[i] && !ft_strchr(" \t\n\v\f\r|<>'\"\n", input[i]))
 				i++;
 			
 			if (i > seg_start)
@@ -96,6 +123,10 @@ static int build_word_token(const char *input, int start_pos, t_token **tokens)
 			}
 		}
 	}
+
+	// Determine quote context: only single-quoted if entire token is single-quoted
+	if (has_single_quote && !has_other_content && part_count == 1)
+		dominant_quote = '\'';
 
 	// Join all parts into a single word
 	if (part_count == 0)
@@ -117,11 +148,9 @@ static int build_word_token(const char *input, int start_pos, t_token **tokens)
 		free(word_parts[j]);
 	}
 
-	append_token(tokens, new_token(final_word, WORD));
+	append_token(tokens, new_token_with_quotes(final_word, WORD, dominant_quote));
 	return (i);
 }
-
-
 
 // Check if current position starts a variable assignment with quotes
 static int is_assignment_with_quotes(const char *input, int start)

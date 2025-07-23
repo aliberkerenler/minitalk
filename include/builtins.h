@@ -15,6 +15,6 @@ int builtin_cd(t_command *cmd, t_shell *shell);
 int builtin_env(t_shell *shell);
 int builtin_export(t_command *cmd, t_shell *shell);
 int builtin_unset(t_command *cmd, t_shell *shell);
-void builtin_exit(t_command *cmd, t_shell *shell);
+int builtin_exit(t_command *cmd, t_shell *shell);
 
 #endif

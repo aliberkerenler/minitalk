@@ -39,7 +39,7 @@ static int is_numeric(const char *s)
     return 1;
 }
 
-void builtin_exit(t_command *cmd, t_shell *shell)
+int builtin_exit(t_command *cmd, t_shell *shell)
 {
     int status = shell->last_exit_status;
 
@@ -61,7 +61,7 @@ void builtin_exit(t_command *cmd, t_shell *shell)
         {
             ft_putstr_fd("minishell: exit: too many arguments\n", 2);
             shell->last_exit_status = 1;
-            return; // Don't exit, just set error status
+            return (1); // Don't exit, return error status
         }
         else
         {

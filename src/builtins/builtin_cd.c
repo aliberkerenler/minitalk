@@ -16,6 +16,13 @@ int builtin_cd(t_command *cmd, t_shell *shell)
         return (1);
     }
     
+    // Check for too many arguments
+    if (cmd->args[1] && cmd->args[2])
+    {
+        ft_putstr_fd("minishell: cd: too many arguments\n", 2);
+        return (1);
+    }
+    
     // Hedef yolu belirle (argüman yoksa HOME)
     path = (cmd->args[1] != NULL) ? cmd->args[1] : getenv("HOME");
     if (!path)
@@ -29,7 +36,7 @@ int builtin_cd(t_command *cmd, t_shell *shell)
     {
 		ft_putstr_fd("minishell: cd: ", 2);
 		ft_putstr_fd(path, 2);
-		ft_putstr_fd(": No such file or directory\nd\n", 2);
+		ft_putstr_fd(": No such file or directory\n", 2);
         return (1);
     }
 

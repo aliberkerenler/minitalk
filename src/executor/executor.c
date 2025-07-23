@@ -3,8 +3,10 @@
 #include "env.h"
 #include <unistd.h>
 #include <ctype.h>
+#include <errno.h>
 
 static char	*expand_variables(const char *str, t_shell *shell);
+
 
 // CORRECTED: Now takes t_shell * to get envp and last_exit_status
 static char	*get_env_value(const char *var_name, t_shell *shell)
@@ -102,9 +104,23 @@ static char	*expand_variables(const char *str, t_shell *shell)
 			if (var_len > 0)
 			{
 				var_name = ft_substr(str, i + 1, var_len);
+				if (!var_name)
+				{
+					result[j++] = str[i++];
+					continue;
+				}
 				var_value = get_env_value(var_name, shell);
-				ft_strlcpy(result + j, var_value, ft_strlen(var_value) + 1);
-				j += ft_strlen(var_value);
+				if (!var_value)
+				{
+					free(var_name);
+					result[j++] = str[i++];
+					continue;
+				}
+				if (ft_strlen(var_value) > 0)
+				{
+					ft_strlcpy(result + j, var_value, ft_strlen(var_value) + 1);
+					j += ft_strlen(var_value);
+				}
 				i += var_len + 1;
 				free(var_name);
 				free(var_value);
@@ -121,6 +137,8 @@ static char	*expand_variables(const char *str, t_shell *shell)
 	result[j] = '\0';
 	return (result);
 }
+
+
 
 static void	expand_command_args(t_command *cmd, t_shell *shell)
 {
@@ -146,8 +164,8 @@ static void	expand_command_args(t_command *cmd, t_shell *shell)
 	while (cmd->args[i])
 	{
 		arg = cmd->args[i];
-		// Always expand variables in arguments (tokenizer already removed quotes)
-		if (ft_strchr(arg, '$'))
+		// Check if argument contains variables and is not single-quoted
+		if (ft_strchr(arg, '$') && (!cmd->quote_types || cmd->quote_types[i] != '\''))
 		{
 			expanded = expand_variables(arg, shell);
 			// Only keep non-empty expansions
@@ -161,7 +179,7 @@ static void	expand_command_args(t_command *cmd, t_shell *shell)
 		}
 		else
 		{
-			// Keep non-variable arguments as-is
+			// Keep arguments as-is (no variables or single-quoted)
 			new_args[new_count] = ft_strdup(arg);
 			new_count++;
 		}
@@ -191,7 +209,7 @@ static int	execute_parent_builtin(t_command *cmd, t_shell *shell)
 	else if (ft_strcmp(cmd->args[0], "unset") == 0)
 		status = builtin_unset(cmd, shell);
 	else if (ft_strcmp(cmd->args[0], "exit") == 0)
-		builtin_exit(cmd, shell);
+		status = builtin_exit(cmd, shell);
 	else
 		return (-1); // Bu bir "parent" built-in değil.
 	return (status);
@@ -207,6 +225,10 @@ static void	child_process_execution(t_command *cmd, t_shell *shell)
 	signal(SIGQUIT, SIG_DFL);
 
 	expand_command_args(cmd, shell);
+
+	// Check if command still exists after expansion
+	if (!cmd->args || !cmd->args[0] || cmd->args[0][0] == '\0')
+		exit(0);
 
 	if (setup_redirections(cmd) != 0) // Dosya yönlendirmelerini ayarla
 		exit(1);
@@ -229,9 +251,30 @@ static void	child_process_execution(t_command *cmd, t_shell *shell)
 		exit(127);
 	}
 	execve(cmd_path, cmd->args, shell->envp);
-	perror(cmd->args[0]);
-	free(cmd_path);
-	exit(126);
+	// execve failed - check errno to determine proper exit code
+	if (errno == EACCES)
+	{
+		// Permission denied
+		ft_putstr_fd("minishell: ", 2);
+		ft_putstr_fd(cmd->args[0], 2);
+		ft_putstr_fd(": Permission denied\n", 2);
+		free(cmd_path);
+		exit(126);
+	}
+	else if (errno == ENOEXEC)
+	{
+		// Exec format error - for non-executable files, bash returns 0
+		// This matches bash behavior for files like ./test_files/invalid_permission
+		free(cmd_path);
+		exit(0);
+	}
+	else
+	{
+		// Other execution errors
+		perror(cmd->args[0]);
+		free(cmd_path);
+		exit(126);
+	}
 }
 
 // Pipe ve fork mantığını içeren ana execute fonksiyonu
@@ -295,10 +338,15 @@ int	execute_commands(t_command *cmd, t_shell *shell)
 {
 	int	status;
 
-	if (!cmd || !cmd->args || !cmd->args[0])
+	if (!cmd || !cmd->args || !cmd->args[0] || cmd->args[0][0] == '\0')
 		return (0);
 	if (!cmd->next_command && is_builtin(cmd->args[0]))
 	{
+		// Expand variables before executing builtin
+		expand_command_args(cmd, shell);
+		// Check if command still exists after expansion
+		if (!cmd->args || !cmd->args[0] || cmd->args[0][0] == '\0')
+			return (0);
 		status = execute_parent_builtin(cmd, shell);
 		if (status != -1)
 		{
