@@ -24,6 +24,7 @@ static char	*get_env_value(const char *var_name, t_shell *shell)
 }
 
 // Değişken adının uzunluğunu hesaplar (örn: $USER -> 4)
+// Returns 0 if not a valid variable name
 static int	get_var_name_len(const char *str)
 {
 	int	i;
@@ -31,6 +32,9 @@ static int	get_var_name_len(const char *str)
 	i = 0;
 	if (str[i] == '?' || str[i] == '$')
 		return (1);
+	// Must start with letter or underscore for valid variable
+	if (!ft_isalpha(str[i]) && str[i] != '_')
+		return (0);
 	while (str[i] && (ft_isalnum(str[i]) || str[i] == '_'))
 		i++;
 	return (i);
@@ -42,6 +46,7 @@ static size_t	calculate_expanded_len(const char *str, t_shell *shell)
 	char	*var_name;
 	char	*var_value;
 	int		i;
+	int		var_len;
 
 	len = 0;
 	i = 0;
@@ -49,13 +54,22 @@ static size_t	calculate_expanded_len(const char *str, t_shell *shell)
 	{
 		if (str[i] == '$' && str[i + 1])
 		{
-			var_name = ft_substr(str, i + 1, get_var_name_len(str + i + 1));
-			// CORRECTED: Passing correct arguments
-			var_value = get_env_value(var_name, shell);
-			len += ft_strlen(var_value);
-			i += ft_strlen(var_name) + 1;
-			free(var_name);
-			free(var_value);
+			var_len = get_var_name_len(str + i + 1);
+			if (var_len > 0)
+			{
+				var_name = ft_substr(str, i + 1, var_len);
+				var_value = get_env_value(var_name, shell);
+				len += ft_strlen(var_value);
+				i += var_len + 1;
+				free(var_name);
+				free(var_value);
+			}
+			else
+			{
+				// Not a valid variable, keep the $ as literal
+				len++;
+				i++;
+			}
 		}
 		else
 		{
@@ -74,6 +88,7 @@ static char	*expand_variables(const char *str, t_shell *shell)
 	char	*var_value;
 	int		i;
 	int		j;
+	int		var_len;
 
 	result = (char *)malloc(calculate_expanded_len(str, shell) + 1);
 	if (!result) return (NULL);
@@ -83,13 +98,22 @@ static char	*expand_variables(const char *str, t_shell *shell)
 	{
 		if (str[i] == '$' && str[i + 1])
 		{
-			var_name = ft_substr(str, i + 1, get_var_name_len(str + i + 1));
-			var_value = get_env_value(var_name, shell);
-			ft_strlcpy(result + j, var_value, ft_strlen(var_value) + 1);
-			j += ft_strlen(var_value);
-			i += ft_strlen(var_name) + 1;
-			free(var_name);
-			free(var_value);
+			var_len = get_var_name_len(str + i + 1);
+			if (var_len > 0)
+			{
+				var_name = ft_substr(str, i + 1, var_len);
+				var_value = get_env_value(var_name, shell);
+				ft_strlcpy(result + j, var_value, ft_strlen(var_value) + 1);
+				j += ft_strlen(var_value);
+				i += var_len + 1;
+				free(var_name);
+				free(var_value);
+			}
+			else
+			{
+				// Not a valid variable, keep the $ as literal
+				result[j++] = str[i++];
+			}
 		}
 		else
 			result[j++] = str[i++];
@@ -102,38 +126,54 @@ static void	expand_command_args(t_command *cmd, t_shell *shell)
 {
 	int		i;
 	char	*arg;
-	char	*unquoted;
 	char	*expanded;
+	int		arg_count;
+	char	**new_args;
+	int		new_count;
 
+	// First, count total arguments
+	arg_count = 0;
+	while (cmd->args[arg_count])
+		arg_count++;
+
+	// Expand all arguments and collect non-empty ones
+	new_args = malloc(sizeof(char*) * (arg_count + 1));
+	if (!new_args)
+		return;
+
+	new_count = 0;
 	i = 0;
 	while (cmd->args[i])
 	{
 		arg = cmd->args[i];
-		// 1. Single quotes: No expansion, just remove quotes.
-		if (arg[0] == '\'' && arg[ft_strlen(arg) - 1] == '\'')
-		{
-			unquoted = ft_substr(arg, 1, ft_strlen(arg) - 2);
-			free(cmd->args[i]);
-			cmd->args[i] = unquoted;
-		}
-		// 2. Double quotes: Remove quotes, then expand inside.
-		else if (arg[0] == '"' && arg[ft_strlen(arg) - 1] == '"')
-		{
-			unquoted = ft_substr(arg, 1, ft_strlen(arg) - 2);
-			expanded = expand_variables(unquoted, shell);
-			free(unquoted);
-			free(cmd->args[i]);
-			cmd->args[i] = expanded;
-		}
-		// 3. No quotes but contains $: expand directly.
-		else if (ft_strchr(arg, '$'))
+		// Always expand variables in arguments (tokenizer already removed quotes)
+		if (ft_strchr(arg, '$'))
 		{
 			expanded = expand_variables(arg, shell);
-			free(cmd->args[i]);
-			cmd->args[i] = expanded;
+			// Only keep non-empty expansions
+			if (expanded && ft_strlen(expanded) > 0)
+			{
+				new_args[new_count] = expanded;
+				new_count++;
+			}
+			else if (expanded)
+				free(expanded);
+		}
+		else
+		{
+			// Keep non-variable arguments as-is
+			new_args[new_count] = ft_strdup(arg);
+			new_count++;
 		}
 		i++;
 	}
+	new_args[new_count] = NULL;
+
+	// Free old args and replace with new ones
+	for (i = 0; cmd->args[i]; i++)
+		free(cmd->args[i]);
+	free(cmd->args);
+	cmd->args = new_args;
 }
 
 #include "builtins.h"

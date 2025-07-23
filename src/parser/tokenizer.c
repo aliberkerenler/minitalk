@@ -46,58 +46,82 @@ void print_tokens(t_token *tokens)
 	}
 }
 
-// Tırnak içindeki metni doğru şekilde işleyen yardımcı fonksiyon
-// Quote type'ı preserve eder: tek tırnak için literal, çift tırnak için expandable
-static int handle_quotes(const char *input, int i, t_token **tokens)
+// Helper function to build a complete word by joining adjacent quoted and unquoted segments
+static int build_word_token(const char *input, int start_pos, t_token **tokens)
 {
-	char quote_char;
-	int start;
-	char *content;
-	char *final_value;
+	char *word_parts[256]; // Array to store word segments
+	int part_count = 0;
+	int i = start_pos;
+	int total_len = 0;
+	char *final_word;
+	int j;
 
-	quote_char = input[i];
-	i++;
-	start = i;
-	while (input[i] && input[i] != quote_char)
-		i++;
+	// Collect all adjacent segments (quoted and unquoted) that form one logical word
+	while (input[i] && !ft_strchr(" \t\n\v\f\r|<>", input[i]))
+	{
+		if (input[i] == '\'' || input[i] == '"')
+		{
+			// Handle quoted segment
+			char quote_char = input[i];
+			int quote_start = i + 1;
+			i++;
+			while (input[i] && input[i] != quote_char)
+				i++;
+			
+			// Extract content without quotes
+			word_parts[part_count] = ft_substr(input, quote_start, i - quote_start);
+			if (word_parts[part_count])
+			{
+				total_len += ft_strlen(word_parts[part_count]);
+				part_count++;
+			}
+			if (input[i] == quote_char)
+				i++;
+		}
+		else
+		{
+			// Handle unquoted segment
+			int seg_start = i;
+			while (input[i] && !ft_strchr(" \t\n\v\f\r|<>'\"", input[i]))
+				i++;
+			
+			if (i > seg_start)
+			{
+				word_parts[part_count] = ft_substr(input, seg_start, i - seg_start);
+				if (word_parts[part_count])
+				{
+					total_len += ft_strlen(word_parts[part_count]);
+					part_count++;
+				}
+			}
+		}
+	}
 
-	content = ft_substr(input, start, i - start);
-	if (!content)
+	// Join all parts into a single word
+	if (part_count == 0)
 		return (i);
 
-	if (quote_char == '\'')
+	final_word = malloc(total_len + 1);
+	if (!final_word)
 	{
-		// Tek tırnak: literal, variable expansion yok
-		// Quote'ları preserve et ki executor tanıyabilsin
-		final_value = malloc(ft_strlen(content) + 3); // '...' için
-		if (final_value)
-		{
-			final_value[0] = '\'';
-			ft_strlcpy(final_value + 1, content, ft_strlen(content) + 1);
-			ft_strlcat(final_value, "\'", ft_strlen(content) + 3);
-			append_token(tokens, new_token(final_value, WORD));
-		}
-		free(content);
-	}
-	else if (quote_char == '"')
-	{
-		// Çift tırnak: variable expansion yapılacak
-		// İçeriği özel bir marker ile işaretle
-		final_value = malloc(ft_strlen(content) + 3); // "..." için
-		if (final_value)
-		{
-			final_value[0] = '"';
-			ft_strlcpy(final_value + 1, content, ft_strlen(content) + 1);
-			ft_strlcat(final_value, "\"", ft_strlen(content) + 3);
-			append_token(tokens, new_token(final_value, WORD));
-		}
-		free(content);
+		// Free allocated parts on failure
+		for (j = 0; j < part_count; j++)
+			free(word_parts[j]);
+		return (i);
 	}
 
-	if (input[i] == quote_char)
-		i++;
+	final_word[0] = '\0';
+	for (j = 0; j < part_count; j++)
+	{
+		ft_strlcat(final_word, word_parts[j], total_len + 1);
+		free(word_parts[j]);
+	}
+
+	append_token(tokens, new_token(final_word, WORD));
 	return (i);
 }
+
+
 
 // Check if current position starts a variable assignment with quotes
 static int is_assignment_with_quotes(const char *input, int start)
@@ -119,7 +143,6 @@ static int is_assignment_with_quotes(const char *input, int start)
 	
 	return (1); // This is an assignment with quotes
 }
-
 
 // Variable assignment with quotes handler (e.g., VAR="value")
 static int	handle_assignment_with_quotes(const char *input, int start, t_token **tokens)
@@ -163,8 +186,6 @@ t_token	*tokenize(const char *input)
 	{
 		if (ft_strchr(" \t\n\v\f\r", input[i]))
 			i++;
-		else if (input[i] == '\'' || input[i] == '"')
-			i = handle_quotes(input, i, &tokens);
 		else if (ft_strchr("|<>", input[i]))
 		{
 			if (input[i + 1] == '>' && input[i] == '>')
@@ -195,10 +216,8 @@ t_token	*tokenize(const char *input)
 			}
 			else
 			{
-				// Regular word token
-				while (input[i] && !ft_strchr(" \t\n\v\f\r|<>\"'", input[i]))
-					i++;
-				append_token(&tokens, new_token(ft_substr(input, start, i - start), WORD));
+				// Build complete word by joining adjacent quoted/unquoted segments
+				i = build_word_token(input, start, &tokens);
 			}
 		}
 	}
